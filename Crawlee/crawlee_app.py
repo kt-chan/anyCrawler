@@ -4,9 +4,11 @@ import asyncio
 from datetime import timedelta
 from pathlib import Path
 import shutil
+import time
 from typing import Dict, Any
 from urllib.parse import urljoin
 from util.random_id_factory import RandomIDFactory
+from processor.pdf_processor import PDFProcessor
 from crawlee import (
     Glob,
     HttpHeaders,
@@ -20,12 +22,12 @@ from crawlee.crawlers import BeautifulSoupCrawler, BeautifulSoupCrawlingContext
 # Set the desired storage directory path
 STORAGE_PATH = Path(f"{os.getcwd()}/data/storage").resolve()
 DATA_DIRECTORY = STORAGE_PATH / "datasets" / "default"
-OBJ_DIRECTORY = STORAGE_PATH / "datasets" / "object"
+OBJ_DIRECTORY = STORAGE_PATH / "object"
 os.environ["CRAWLEE_STORAGE_DIR"] = str(STORAGE_PATH)
 
 # Global Variable
 MAX_DEPTH = 3
-MAX_PAGES = 10
+MAX_PAGES = 100
 
 
 class CrawlerApp:
@@ -46,6 +48,7 @@ class CrawlerApp:
                 max_requests_per_crawl=self.max_pages,
                 request_handler_timeout=timedelta(seconds=30),
             )
+            self.urls = {}
             self.meta_factory = RandomIDFactory()
             CrawlerApp._initialized = True
 
@@ -81,7 +84,13 @@ class CrawlerApp:
             request_options.setdefault("userData", {})["depth"] = current_depth
 
         if request_options["url"].endswith(".pdf"):
-            self.crawler.log.info(f"Skipping PDF document: {request_options['url']}")
+            self.crawler.log.info(
+                f"Hanlding PDF document for batch download: {request_options['url']}"
+            )
+            url = request_options["url"]
+            if url not in self.urls:
+                self.urls[url] = url
+
             return "skip"
 
         request_options.setdefault("userData", {})["depth"] = current_depth
@@ -162,9 +171,41 @@ class CrawlerApp:
 
 
 async def main() -> None:
-    crawler = CrawlerApp()
+    app = CrawlerApp()
     start_urls = ["https://www.wsd.gov.hk/"]
-    await crawler.run(start_urls)
+    await app.run(start_urls)
+
+    urls = list(app.urls.keys())
+    if len(urls) > 0:
+        app.crawler.log.info(f"Processing URLs batch download, size: {len(urls)}")
+        download_urls(app, urls)
+
+
+def download_urls(app: CrawlerApp, urls: list[str]):
+    # Create processor instance
+    processor = PDFProcessor(max_workers=10)
+    save_dir = str(OBJ_DIRECTORY / "pdf")
+
+    # Define a simple progress callback
+    def progress_callback(url, save_path, status, progress):
+        filename = os.path.basename(save_path) if save_path else "unknown"
+        app.crawler.log.debug(f"{filename}: {status} {progress:.1f}%")
+
+    # Download multiple PDFs
+    app.crawler.log.info(f"Starting download of multiple PDFs... size: {len(urls)}")
+    start_time = time.time()
+
+    successful = processor.download_multiple_pdfs(
+        urls, save_dir, progress_callback=progress_callback
+    )
+
+    end_time = time.time()
+    app.crawler.log.info(
+        f"Downloaded {len(successful)} files in {end_time - start_time:.2f} seconds"
+    )
+
+    # Clean up
+    processor.close()
 
 
 def turncate_storage(folder_path):
