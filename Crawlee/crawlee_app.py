@@ -405,26 +405,26 @@ async def main() -> None:
     processor = FileProcessor(max_workers=10)
 
     # # Truncate the Storage
-    # turncate_storage(STORAGE_PATH)
+    turncate_storage(STORAGE_PATH)
 
-    # start_urls = ["https://www.wsd.gov.hk/"]
-    # await app.run(start_urls)
+    start_urls = ["https://www.wsd.gov.hk/"]
+    await app.run(start_urls)
 
-    # pdf_urls = list(app.pdf_urls.keys())
-    # if len(pdf_urls) > 0:
-    #     app.crawler.log.info(
-    #         f"Processing URLs batch download for PDF, size: {len(pdf_urls)}"
-    #     )
-    #     save_dir_pdf = str(DATA_DIRECTORY / "pdf")
-    #     download_urls(app, processor, save_dir=save_dir_pdf, urls=pdf_urls)
+    pdf_urls = list(app.pdf_urls.keys())
+    if len(pdf_urls) > 0:
+        app.crawler.log.info(
+            f"Processing URLs batch download for PDF, size: {len(pdf_urls)}"
+        )
+        save_dir_pdf = str(DATA_DIRECTORY / "pdf")
+        download_urls(app, processor, save_dir=save_dir_pdf, urls=pdf_urls)
 
-    # img_urls = list(app.img_urls.keys())
-    # if len(img_urls) > 0:
-    #     app.crawler.log.info(
-    #         f"Processing URLs batch download for Images, size: {len(img_urls)}"
-    #     )
-    #     save_dir_img = str(DATA_DIRECTORY / "img")
-    #     download_urls(app, processor, save_dir=save_dir_img, urls=img_urls)
+    img_urls = list(app.img_urls.keys())
+    if len(img_urls) > 0:
+        app.crawler.log.info(
+            f"Processing URLs batch download for Images, size: {len(img_urls)}"
+        )
+        save_dir_img = str(DATA_DIRECTORY / "img")
+        download_urls(app, processor, save_dir=save_dir_img, urls=img_urls)
 
     app.crawler.log.info("Extracting HTML files ... ")
     write_output_files(
