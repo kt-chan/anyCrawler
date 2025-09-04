@@ -7,10 +7,12 @@ from datetime import timedelta
 from pathlib import Path
 import shutil
 import time
-from typing import Dict, Any
+from typing import Callable, Dict, Any, Optional
 from urllib.parse import urljoin
+
+import requests
 from util.random_id_factory import RandomIDFactory, FileMetadata
-from util.htmlfile_writer import read_json_files_with_buffer
+from util.htmlfile_writer import process_json_file
 from processor.file_processor import (
     FileProcessor,
     get_root_domain_from_url,
@@ -33,6 +35,25 @@ STORAGE_PATH = Path(os.getenv("CRAWLEE_STORAGE_DIR", "/data/storage"))
 DATA_DIRECTORY = STORAGE_PATH / "datasets"
 MAX_DEPTH = int(os.getenv("MAX_DEPTH", 3))
 MAX_PAGES = int(os.getenv("MAX_PAGES", 10))
+
+
+CSS_TABLE_STYLE = """
+        img {
+            width: 95%;
+            height: auto;
+        }
+        table {
+            border-collapse: collapse;
+            margin-top: 50px;
+            margin-bottom: 50px;
+            width: 95%;
+        }
+        td, th {
+            border: 1px solid #000000;
+            text-align: left;
+            padding: 8px;
+        }
+        """
 
 
 class CrawlerApp:
@@ -108,6 +129,24 @@ class CrawlerApp:
         html_content = (
             context.soup.prettify() if context.soup else str(context.response.body)
         )
+
+        # Remove all existing style attributes
+        for tag in context.soup.find_all(True):  # Find all tags
+            if "style" in tag.attrs:
+                del tag.attrs["style"]  # Remove the style attribute
+
+        # Add the specified CSS style to the head section
+        if context.soup.find("head"):
+            new_style_tag = context.soup.new_tag("style", type="text/css")
+            new_style_tag.string = CSS_TABLE_STYLE
+            context.soup.find("head").append(new_style_tag)
+        else:
+            # If there is no head section, create one and add the style
+            head_tag = context.soup.new_tag("head")
+            new_style_tag = context.soup.new_tag("style", type="text/css")
+            new_style_tag.string = CSS_TABLE_STYLE
+            head_tag.append(new_style_tag)
+            context.soup.append(head_tag)
 
         ## Format PDF URL
         pdf_tags = [
@@ -212,19 +251,133 @@ class CrawlerApp:
             print(f"Final count: {self.crawled_count} pages crawled")
 
 
-def download_urls(app: CrawlerApp, processor: FileProcessor, save_dir, urls: list[str]):
+def download_urls(
+    app: CrawlerApp,
+    processor: FileProcessor,
+    urls: list[str],
+    save_dir: Optional[str] = None,
+):
 
-    # Define a simple progress callback
-    def progress_callback(url, save_path, status, progress):
-        filename = os.path.basename(save_path) if save_path else "unknown"
-        app.crawler.log.debug(f"{filename}: {status} {progress:.1f}%")
+    # Define a simple download funciton and progress callback
+
+    def file_download(url: str, save_path: str) -> bool:
+        """Download a single PDF file with synchronization protection."""
+
+        def progress_callback(url, save_path, status, progress):
+            filename = os.path.basename(save_path) if save_path else "unknown"
+            app.crawler.log.debug(f"{status} on {filename}: {progress:.1f}%")
+
+        try:
+
+            # Check if file already exists to avoid re-downloading
+            if os.path.exists(save_path):
+                if progress_callback:
+                    progress_callback(url, save_path, "already_exists", 0)
+                return True
+
+            # Stream the download to handle large files efficiently
+            response = processor.session.get(
+                url, stream=True, timeout=processor.timeout
+            )
+            response.raise_for_status()
+
+            # Get file size for progress tracking
+            total_size = int(response.headers.get("content-length", 0))
+            downloaded_size = 0
+
+            # Download in chunks for efficiency
+            chunk_size = 8192  # 8KB chunks
+            with open(save_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+
+                        # Report progress if callback provided
+                        if progress_callback and total_size > 0:
+                            progress = (downloaded_size / total_size) * 100
+                            progress_callback(url, save_path, "downloading", progress)
+
+            if progress_callback:
+                progress_callback(url, save_path, "completed", 100)
+
+            return True
+
+        except requests.exceptions.RequestException as e:
+            if progress_callback:
+                progress_callback(url, save_path, f"error: {str(e)}", 0)
+            # Clean up partially downloaded file
+            if os.path.exists(save_path):
+                os.remove(save_path)
+            return False
+        except Exception as e:
+            if progress_callback:
+                progress_callback(url, save_path, f"error: {str(e)}", 0)
+            return False
 
     # Download multiple PDFs
     app.crawler.log.info(f"Starting download of multiple files... size: {len(urls)}")
     start_time = time.time()
 
-    successful = processor.download_files(
-        urls, save_dir, progress_callback=progress_callback
+    successful = processor.batch_process_files(
+        urls=urls, progress_function=file_download, save_base_path=save_dir
+    )
+
+    end_time = time.time()
+    app.crawler.log.info(
+        f"Downloaded {len(successful)} files in {end_time - start_time:.2f} seconds"
+    )
+
+    # Clean up
+    processor.close()
+
+
+def write_output_files(
+    app: CrawlerApp, processor: FileProcessor, data_dir: str, target_tag: str
+):
+    source_urls = []
+    for root, dirs, files in os.walk(data_dir):
+        for file in files:
+            if file.endswith(".json"):
+                source_urls.append(os.path.join(root, file))
+
+    # Define a simple download funciton and progress callback
+    ## process_json_file(file_path=file, target_tag="html")
+
+    def save_processed_json_file(data_dir: str, save_path: str = None) -> bool:
+        """Download a single PDF file with synchronization protection."""
+
+        def progress_callback(data_dir, save_path, status, progress):
+            filename = os.path.basename(save_path) if save_path else data_dir
+            app.crawler.log.debug(f"{status} on {filename}: {progress:.1f}%")
+
+        try:
+            result = process_json_file(file_path=data_dir, target_tag=target_tag)
+            if progress_callback:
+                progress_callback(data_dir, save_path, "completed", 100)
+
+            return data_dir if result else None
+
+        except requests.exceptions.RequestException as e:
+            if progress_callback:
+                progress_callback(data_dir, save_path, f"error: {str(e)}", 0)
+            # Clean up partially downloaded file
+            if os.path.exists(save_path):
+                os.remove(save_path)
+            return False
+        except Exception as e:
+            if progress_callback:
+                progress_callback(data_dir, save_path, f"error: {str(e)}", 0)
+            return False
+
+    # Download multiple PDFs
+    app.crawler.log.info(
+        f"Starting download of multiple files... size: {len(source_urls)}"
+    )
+    start_time = time.time()
+
+    successful = processor.batch_process_files(
+        urls=source_urls, progress_function=save_processed_json_file
     )
 
     end_time = time.time()
@@ -245,38 +398,41 @@ def turncate_storage(folder_path):
         print(f"An error occurred while deleting the folder: {e}")
 
 
-def write_html(data_dir, target_tag):
-    return read_json_files_with_buffer(DATA_DIRECTORY, target_tag="html")
-
-
 async def main() -> None:
-    turncate_storage(STORAGE_PATH)
-
     app = CrawlerApp()
 
     # Create processor instance
     processor = FileProcessor(max_workers=10)
 
-    start_urls = ["https://www.wsd.gov.hk/"]
-    await app.run(start_urls)
+    # # Truncate the Storage
+    # turncate_storage(STORAGE_PATH)
 
-    pdf_urls = list(app.pdf_urls.keys())
-    if len(pdf_urls) > 0:
-        app.crawler.log.info(
-            f"Processing URLs batch download for PDF, size: {len(pdf_urls)}"
-        )
-        save_dir_pdf = str(DATA_DIRECTORY / "pdf")
-        download_urls(app, processor, save_dir=save_dir_pdf, urls=pdf_urls)
+    # start_urls = ["https://www.wsd.gov.hk/"]
+    # await app.run(start_urls)
 
-    img_urls = list(app.img_urls.keys())
-    if len(img_urls) > 0:
-        app.crawler.log.info(
-            f"Processing URLs batch download for Images, size: {len(img_urls)}"
-        )
-        save_dir_img = str(DATA_DIRECTORY / "img")
-        download_urls(app, processor, save_dir=save_dir_img, urls=img_urls)
+    # pdf_urls = list(app.pdf_urls.keys())
+    # if len(pdf_urls) > 0:
+    #     app.crawler.log.info(
+    #         f"Processing URLs batch download for PDF, size: {len(pdf_urls)}"
+    #     )
+    #     save_dir_pdf = str(DATA_DIRECTORY / "pdf")
+    #     download_urls(app, processor, save_dir=save_dir_pdf, urls=pdf_urls)
 
-    write_html(data_dir=DATA_DIRECTORY, target_tag="html")
+    # img_urls = list(app.img_urls.keys())
+    # if len(img_urls) > 0:
+    #     app.crawler.log.info(
+    #         f"Processing URLs batch download for Images, size: {len(img_urls)}"
+    #     )
+    #     save_dir_img = str(DATA_DIRECTORY / "img")
+    #     download_urls(app, processor, save_dir=save_dir_img, urls=img_urls)
+
+    app.crawler.log.info("Extracting HTML files ... ")
+    write_output_files(
+        app, processor, data_dir=str(DATA_DIRECTORY / Path("html")), target_tag="html"
+    )
+
+    app.crawler.log.info(f"Data is saved at: {DATA_DIRECTORY}")
+    app.crawler.log.info("######### All Task Done ##########")
 
 
 if __name__ == "__main__":

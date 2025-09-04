@@ -1,2 +1,3 @@
 crawlee[all]
 dotenv
+pdfkit>=1.0.0

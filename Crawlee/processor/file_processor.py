@@ -107,84 +107,11 @@ class FileProcessor:
             }
         )
 
-    def _download(
-        self, url: str, save_path: str, progress_callback: Optional[Callable] = None
-    ) -> bool:
-        """Download a single PDF file with synchronization protection."""
-        try:
-            # Use a lock to prevent race conditions when accessing shared resources
-            with self.download_lock:
-                # Check if file already exists to avoid re-downloading
-                if os.path.exists(save_path):
-                    if progress_callback:
-                        progress_callback(url, save_path, "already_exists", 0)
-                    return True
-
-            # Stream the download to handle large files efficiently
-            response = self.session.get(url, stream=True, timeout=self.timeout)
-            response.raise_for_status()
-
-            # Get file size for progress tracking
-            total_size = int(response.headers.get("content-length", 0))
-            downloaded_size = 0
-
-            # Download in chunks for efficiency
-            chunk_size = 8192  # 8KB chunks
-            with open(save_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded_size += len(chunk)
-
-                        # Report progress if callback provided
-                        if progress_callback and total_size > 0:
-                            progress = (downloaded_size / total_size) * 100
-                            progress_callback(url, save_path, "downloading", progress)
-
-            if progress_callback:
-                progress_callback(url, save_path, "completed", 100)
-
-            return True
-
-        except requests.exceptions.RequestException as e:
-            if progress_callback:
-                progress_callback(url, save_path, f"error: {str(e)}", 0)
-            # Clean up partially downloaded file
-            if os.path.exists(save_path):
-                os.remove(save_path)
-            return False
-        except Exception as e:
-            if progress_callback:
-                progress_callback(url, save_path, f"error: {str(e)}", 0)
-            return False
-
-    def download_file(
-        self,
-        url: str,
-        save_base_path: str = "downloads",
-        progress_callback: Optional[Callable] = None,
-    ) -> bool:
-        """
-        Download a single PDF from a URL.
-
-        Args:
-            url: URL of the PDF to download
-            save_base_path: Base directory to save the PDF
-            progress_callback: Optional callback function for progress updates
-
-        Returns:
-            bool: True if download was successful, False otherwise
-        """
-        # Generate save path with directory structure
-        save_path = get_save_path_from_url(url, save_base_path)
-
-        return self._download(url, save_path, progress_callback)
-
-    def download_files(
+    def batch_process_files(
         self,
         urls: List[str],
-        save_base_path: str,
-        progress_callback: Optional[Callable] = None,
+        progress_function: Callable[[str, str, Optional[Callable]], Optional[bool]],
+        save_base_path: Optional[str] = None,
     ) -> List[str]:
         """
         Download multiple PDFs concurrently using thread pool.
@@ -197,20 +124,29 @@ class FileProcessor:
         Returns:
             List of successfully downloaded file paths
         """
-        successful_downloads = []
+        successful_processed = []
 
         # Use thread pool for concurrent downloads
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Create a future for each download task
-            future_to_url = {
-                executor.submit(
-                    self._download,
-                    url,
-                    get_save_path_from_url(url, save_base_path),
-                    progress_callback,
-                ): url
-                for url in urls
-            }
+            if save_base_path is None:
+                future_to_url = {
+                    executor.submit(
+                        progress_function,
+                        url,
+                    ): url
+                    for url in urls
+                }
+
+            if save_base_path is not None:
+                future_to_url = {
+                    executor.submit(
+                        progress_function,
+                        url,
+                        get_save_path_from_url(url, save_base_path),
+                    ): url
+                    for url in urls
+                }
 
             # Process completed downloads as they finish
             for future in as_completed(future_to_url):
@@ -218,14 +154,16 @@ class FileProcessor:
                 try:
                     success = future.result()
                     if success:
-                        successful_downloads.append(
-                            get_save_path_from_url(url, save_base_path)
-                        )
+                        if save_base_path is None:
+                            successful_processed.append(url)
+                        if save_base_path is not None:
+                            successful_processed.append(
+                                get_save_path_from_url(url, save_base_path)
+                            )
                 except Exception as e:
-                    if progress_callback:
-                        progress_callback(url, "", f"error: {str(e)}", 0)
+                    raise e
 
-        return successful_downloads
+        return successful_processed
 
     def close(self):
         """Clean up resources."""
