@@ -25,7 +25,7 @@ def _save_html_file_from_json(file_path, data, save_path: str = None):
     chunk_size = 8192  # 8KB chunks
     file_path = save_path or file_path.replace("json", "html")
     with open(file_path, "wb") as f:
-        print(f"Writing html file to {file_path} ...")
+        # print(f"Writing html file to {file_path} ...")
         for i in range(0, len(data), chunk_size):
             chunk = data[i : i + chunk_size].encode(
                 "utf-8"

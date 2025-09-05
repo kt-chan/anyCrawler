@@ -19,6 +19,8 @@ from processor.file_processor import (
     get_root_domain_from_url,
     get_save_path_from_url,
     url_formater,
+    get_all_pdfs_from_html,
+    set_all_pdfs_from_html_done,
 )
 from urllib.parse import urlparse
 from crawlee import (
@@ -29,7 +31,7 @@ from crawlee import (
     SkippedReason,
 )
 from crawlee.crawlers import BeautifulSoupCrawler, BeautifulSoupCrawlingContext
-
+from processor.rag_processor import upload_document
 
 # Set the desired storage directory path
 STORAGE_PATH = Path(os.getenv("CRAWLEE_STORAGE_DIR", "/data/storage"))
@@ -450,6 +452,37 @@ async def main() -> None:
     app.crawler.log.info("######### All Task Done ##########")
 
 
+def send_to_rag():
+    # Replace 'YOUR_API_KEY' and 'path/to/file.pdf' with actual values
+    start_urls = ["https://www.wsd.gov.hk/"]
+
+    target_pdfs = get_all_pdfs_from_html(
+        domain_url=start_urls[0], storage_dir=str(DATA_DIRECTORY / "html")
+    )
+
+    folder_name = "wsd"
+    workspace_name = "wsd"
+    for pdf_file_path in target_pdfs:
+        try:
+            result = upload_document(
+                "NJ76DFP-AD4MC05-G7DX57C-TAP0CBE",
+                pdf_file_path,
+                fodler_name=folder_name,
+                workspace_name=workspace_name,
+            )
+            if result:
+                print("Written to RAG Completed!")
+            else:
+                print(f"Failed for file: {pdf_file_path}")
+        except Exception as e:
+            print(e)
+
+    set_all_pdfs_from_html_done(
+        domain_url=start_urls[0], storage_dir=str(DATA_DIRECTORY / "html")
+    )
+
+
 if __name__ == "__main__":
     load_dotenv()
     asyncio.run(main())
+    send_to_rag()

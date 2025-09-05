@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import re
+import shutil
 import threading
 from bs4 import ResultSet
 import requests
@@ -92,6 +93,78 @@ def url_formater(url: str, tags: list[str], base_dir: str) -> list[str]:
             print(f"error in parsing img tag: {e}")
 
     return tag_urls
+
+
+def get_all_pdfs_from_html(domain_url: str, storage_dir: str):
+    domain_url = get_root_domain_from_url(domain_url)
+    target_data_dir = str(Path(storage_dir + "/" + domain_url).resolve())
+    pdfs = []
+
+    try:
+        for root, dirs, files in os.walk(target_data_dir):
+            for file in files:
+
+                # Skip working directory
+                skip = str(Path(file).parent).endswith("pdf.tmp") or str(
+                    Path(file).parent
+                ).endswith("pdf.done")
+
+                if file.endswith(".pdf") and not skip:
+                    pdfs.append(os.path.join(root, file))
+
+        if len(pdfs) == 0:
+            return []
+
+        target_dir = Path(target_data_dir) / "pdf.tmp"
+        os.makedirs(target_dir, exist_ok=True)
+
+        for idx, file in enumerate(pdfs):
+            try:
+                file_name = Path(file).parent.name
+
+                file_destination = str(target_dir / file_name) + ".pdf"
+
+                shutil.move(file, file_destination)
+                pdfs[idx] = file_destination
+            except Exception as e:
+                print(f"error in rename pdf {file}: {e}")
+        try:
+            shutil.rmtree(Path(target_data_dir) / "pdf.done")
+        except Exception as e:
+            pass
+    except Exception as e:
+        print(f"error in get_all_pdfs_from_html: {e}")
+
+    return pdfs
+
+
+def set_all_pdfs_from_html_done(domain_url: str, storage_dir: str):
+    domain_url = get_root_domain_from_url(domain_url)
+    target_data_dir = str(
+        Path(storage_dir + "/" + domain_url + "/" + "pdf.tmp").resolve()
+    )
+    pdfs = []
+
+    try:
+        for root, dirs, files in os.walk(target_data_dir):
+            for file in files:
+                if file.endswith(".pdf"):
+                    pdfs.append(os.path.join(root, file))
+
+        target_dir = Path(target_data_dir).parent / "pdf.done"
+        os.makedirs(target_dir, exist_ok=True)
+
+        for idx, file in enumerate(pdfs):
+            try:
+                file_destination = str(file).replace("pdf.tmp", "pdf.done")
+                shutil.move(file, file_destination)
+            except Exception as e:
+                print(f"error in rename pdf {file}: {e}")
+    except Exception as e:
+        print(f"error in set_all_pdfs_from_html_done: {e}")
+
+    print(f"RAG Loading Completed!")
+    return True
 
 
 class FileProcessor:
