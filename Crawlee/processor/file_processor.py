@@ -11,6 +11,13 @@ from urllib.parse import urlparse
 import time
 
 
+def get_root_scheme_domain_from_url(url: str):
+    parsed = urlparse(url)
+    http_scheme = parsed.scheme
+    domain = parsed.netloc
+    return http_scheme + "://" + domain
+
+
 def get_root_domain_from_url(url: str):
     parsed = urlparse(url)
     # Extract domain and path parts

@@ -15,6 +15,7 @@ from util.random_id_factory import RandomIDFactory, FileMetadata
 from util.htmlfile_writer import process_json_file
 from processor.file_processor import (
     FileProcessor,
+    get_root_scheme_domain_from_url,
     get_root_domain_from_url,
     get_save_path_from_url,
     url_formater,
@@ -130,6 +131,8 @@ class CrawlerApp:
             context.soup.prettify() if context.soup else str(context.response.body)
         )
 
+        root_shema_domain = get_root_scheme_domain_from_url(context.request.url)
+
         # Remove all existing style attributes
         for tag in context.soup.find_all(True):  # Find all tags
             if "style" in tag.attrs:
@@ -147,6 +150,18 @@ class CrawlerApp:
             new_style_tag.string = CSS_TABLE_STYLE
             head_tag.append(new_style_tag)
             context.soup.append(head_tag)
+
+        # Format html_href_tags URL
+        html_href_tags = [
+            tag
+            for tag in context.soup.find_all("a")
+            if tag.get("href")
+            and tag.get("href").startswith("/")
+            and tag["href"].split("#")[0].split("?")[0].lower().endswith(".html")
+        ]
+
+        for html_href_tag in html_href_tags:
+            html_href_tag["href"] = root_shema_domain + html_href_tag["href"]
 
         ## Format PDF URL
         pdf_tags = [
