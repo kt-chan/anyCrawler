@@ -109,7 +109,8 @@ class CrawlerApp:
             return "skip"
 
         if "/docs" in request_options["url"]:
-            request_options["headers"] = HttpHeaders({"Custom-Header": "value"})
+            request_options["headers"] = HttpHeaders(
+                {"Custom-Header": "value"})
             request_options.setdefault("userData", {})["depth"] = current_depth
 
         if "/blog" in request_options["url"]:
@@ -136,7 +137,8 @@ class CrawlerApp:
             context.soup.prettify() if context.soup else str(context.response.body)
         )
 
-        root_shema_domain = get_root_scheme_domain_from_url(context.request.url)
+        root_shema_domain = get_root_scheme_domain_from_url(
+            context.request.url)
 
         # Remove all existing style attributes
         for tag in context.soup.find_all(True):  # Find all tags
@@ -168,7 +170,7 @@ class CrawlerApp:
         for html_href_tag in html_href_tags:
             html_href_tag["href"] = root_shema_domain + html_href_tag["href"]
 
-        ## Format PDF URL
+        # Format PDF URL
         pdf_tags = [
             tag
             for tag in context.soup.find_all("a")
@@ -178,17 +180,19 @@ class CrawlerApp:
         if pdf_tags is not None and len(pdf_tags) > 0:
             pdf_base_dir = str(Path(DATA_DIRECTORY, "pdf"))
             # Modify the src attribute of each img tag
-            pdf_urls = url_formater(context.request.url, pdf_tags, pdf_base_dir)
+            pdf_urls = url_formater(
+                context.request.url, pdf_tags, pdf_base_dir)
             for pdf_url in pdf_urls:
                 if pdf_url not in self.pdf_urls:
                     self.pdf_urls[pdf_url] = pdf_url
 
-        ## Format Image URL
+        # Format Image URL
         img_tags = context.soup.find_all("img")
         if img_tags is not None and len(img_tags) > 0:
             img_base_dir = str(Path(DATA_DIRECTORY, "img"))
             # Modify the src attribute of each img tag
-            img_urls = url_formater(context.request.url, img_tags, img_base_dir)
+            img_urls = url_formater(
+                context.request.url, img_tags, img_base_dir)
             for img_url in img_urls:
                 if img_url not in self.pdf_urls:
                     self.img_urls[img_url] = img_url
@@ -228,7 +232,8 @@ class CrawlerApp:
                             break
 
             if meta_refresh_url:
-                absolute_url = urljoin(str(context.request.url), meta_refresh_url)
+                absolute_url = urljoin(
+                    str(context.request.url), meta_refresh_url)
                 context.log.info(
                     f"Meta refresh redirect detected. Add Request URL to crawler: {absolute_url}"
                 )
@@ -253,18 +258,21 @@ class CrawlerApp:
             await self.push_data_handler(context=context, metadata=metadata)
 
             self.crawled_count += 1
-            context.log.info(f"Crawled {self.crawled_count}/{self.max_pages} pages.")
+            context.log.info(
+                f"Crawled {self.crawled_count}/{self.max_pages} pages.")
 
         @self.crawler.on_skipped_request
         async def skipped_request_handler(url: str, reason: SkippedReason) -> None:
             if reason == "robots_txt":
-                self.crawler.log.info(f"Skipped {url} due to robots.txt rules.")
+                self.crawler.log.info(
+                    f"Skipped {url} due to robots.txt rules.")
 
     async def run(self, start_urls: list[str]) -> None:
         self.setup_handlers()
         try:
             await self.crawler.run(start_urls)
-            print(f"Crawl completed. Total pages crawled: {self.crawled_count}")
+            print(
+                f"Crawl completed. Total pages crawled: {self.crawled_count}")
         except Exception as e:
             print(f"Crawl interrupted with error: {str(e)}")
         finally:
@@ -316,7 +324,8 @@ def download_urls(
                         # Report progress if callback provided
                         if progress_callback and total_size > 0:
                             progress = (downloaded_size / total_size) * 100
-                            progress_callback(url, save_path, "downloading", progress)
+                            progress_callback(
+                                url, save_path, "downloading", progress)
 
             if progress_callback:
                 progress_callback(url, save_path, "completed", 100)
@@ -336,7 +345,8 @@ def download_urls(
             return False
 
     # Download multiple PDFs
-    app.crawler.log.info(f"Starting download of multiple files... size: {len(urls)}")
+    app.crawler.log.info(
+        f"Starting download of multiple files... size: {len(urls)}")
     start_time = time.time()
 
     successful = processor.batch_process_files(
@@ -362,7 +372,7 @@ def write_output_files(
                 source_urls.append(os.path.join(root, file))
 
     # Define a simple download funciton and progress callback
-    ## process_json_file(file_path=file, target_tag="html")
+    # process_json_file(file_path=file, target_tag="html")
 
     def save_processed_json_file(data_dir: str, save_path: str = None) -> bool:
         """Download a single PDF file with synchronization protection."""
@@ -372,7 +382,8 @@ def write_output_files(
             app.crawler.log.debug(f"{status} on {filename}: {progress:.1f}%")
 
         try:
-            result = process_json_file(file_path=data_dir, target_tag=target_tag)
+            result = process_json_file(
+                file_path=data_dir, target_tag=target_tag)
             if progress_callback:
                 progress_callback(data_dir, save_path, "completed", 100)
 
@@ -455,7 +466,7 @@ async def main(base_url: list[str]) -> None:
     app.crawler.log.info("######### Crawling Task Done ##########")
 
 
-def send_to_rag(base_url):
+def send_to_rag(base_url: str, folder_name: str = None, workspace_name: str = None):
     # Replace 'YOUR_API_KEY' and 'path/to/file.pdf' with actual values
     target_pdfs = []
 
@@ -475,8 +486,6 @@ def send_to_rag(base_url):
     target_pdfs.extend(target_content_pdfs)
     target_pdfs.extend(target_tmp_pdfs)
 
-    folder_name = "WSD-Web-Domain"
-    workspace_name = "WSD"
     total_size = len(target_pdfs)
     for idx, pdf_file_path in enumerate(target_pdfs):
         try:
@@ -502,10 +511,11 @@ if __name__ == "__main__":
 
     load_dotenv()
 
-    # base_url = ["https://www.wsd.gov.hk/en/home/index.html"]
-    # asyncio.run(main(base_url))
-    send_to_rag("https://www.wsd.gov.hk")
+    base_url = ["https://www.wsd.gov.hk/en/home/index.html"]
+    asyncio.run(main(base_url))
+    send_to_rag(base_url="https://www.wsd.gov.hk",
+                folder_name="WSD-Web-Domain-EN", workspace_name="WSD")
 
-    # base_url = ["https://www.wsd.gov.hk/tc/home/index.html"]
-    # asyncio.run(main(base_url))
-    # send_to_rag("https://www.wsd.gov.hk")
+    base_url = ["https://www.wsd.gov.hk/tc/home/index.html"]
+    asyncio.run(main(base_url))
+    send_to_rag(base_url="https://www.wsd.gov.hk", folder_name="WSD-Web-Domain-TC", workspace_name="WSD")
