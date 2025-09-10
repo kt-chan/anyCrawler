@@ -19,8 +19,9 @@ from processor.file_processor import (
     get_root_domain_from_url,
     get_save_path_from_url,
     url_formater,
-    get_all_pdfs_from_html,
-    set_all_pdfs_from_html_done,
+    get_all_pdfs_from_directory,
+    get_all_pdfs_in_temp_directory,
+    set_pdfs_upload_done,
 )
 from urllib.parse import urlparse
 from crawlee import (
@@ -38,11 +39,13 @@ STORAGE_PATH = Path(os.getenv("CRAWLEE_STORAGE_DIR", "/data/storage"))
 DATA_DIRECTORY = STORAGE_PATH / "datasets"
 MAX_DEPTH = int(os.getenv("MAX_DEPTH", 3))
 MAX_PAGES = int(os.getenv("MAX_PAGES", 10))
-
+RAG_API_KEY = os.getenv("RAG_API_KEY", None)
+RAG_HOST = os.getenv("RAG_HOST", None)
 
 CSS_TABLE_STYLE = """
         img {
-            width: 95%;
+            width: auto;
+            max-width: 95%;
             height: auto;
         }
         table {
@@ -415,7 +418,7 @@ def turncate_storage(folder_path):
         print(f"An error occurred while deleting the folder: {e}")
 
 
-async def main() -> None:
+async def main(base_url: list[str]) -> None:
     app = CrawlerApp()
 
     # Create processor instance
@@ -424,7 +427,7 @@ async def main() -> None:
     # # Truncate the Storage
     turncate_storage(STORAGE_PATH)
 
-    start_urls = ["https://www.wsd.gov.hk/"]
+    start_urls = base_url
     await app.run(start_urls)
 
     pdf_urls = list(app.pdf_urls.keys())
@@ -449,40 +452,60 @@ async def main() -> None:
     )
 
     app.crawler.log.info(f"Data is saved at: {DATA_DIRECTORY}")
-    app.crawler.log.info("######### All Task Done ##########")
+    app.crawler.log.info("######### Crawling Task Done ##########")
 
 
-def send_to_rag():
+def send_to_rag(base_url):
     # Replace 'YOUR_API_KEY' and 'path/to/file.pdf' with actual values
-    start_urls = ["https://www.wsd.gov.hk/"]
+    target_pdfs = []
 
-    target_pdfs = get_all_pdfs_from_html(
-        domain_url=start_urls[0], storage_dir=str(DATA_DIRECTORY / "html")
+    target_html_pdfs = get_all_pdfs_from_directory(
+        domain_url=base_url, storage_dir=str(DATA_DIRECTORY / "html")
     )
 
-    folder_name = "wsd"
-    workspace_name = "wsd"
-    for pdf_file_path in target_pdfs:
+    target_content_pdfs = get_all_pdfs_from_directory(
+        domain_url=base_url, storage_dir=str(DATA_DIRECTORY / "pdf")
+    )
+
+    target_tmp_pdfs = get_all_pdfs_in_temp_directory(
+        storage_dir=str(DATA_DIRECTORY / "pdf-upload.tmp")
+    )
+
+    target_pdfs.extend(target_html_pdfs)
+    target_pdfs.extend(target_content_pdfs)
+    target_pdfs.extend(target_tmp_pdfs)
+
+    folder_name = "WSD-Web-Domain"
+    workspace_name = "WSD"
+    total_size = len(target_pdfs)
+    for idx, pdf_file_path in enumerate(target_pdfs):
         try:
             result = upload_document(
-                "NJ76DFP-AD4MC05-G7DX57C-TAP0CBE",
-                pdf_file_path,
+                api_key=RAG_API_KEY,
+                host_url=RAG_HOST,
+                file_path=pdf_file_path,
                 fodler_name=folder_name,
                 workspace_name=workspace_name,
             )
             if result:
-                print("Written to RAG Completed!")
+                set_pdfs_upload_done([pdf_file_path], str(DATA_DIRECTORY))
+                print(
+                    f"Written to RAG Completed {idx}/{total_size} for: {pdf_file_path}"
+                )
             else:
                 print(f"Failed for file: {pdf_file_path}")
         except Exception as e:
             print(e)
 
-    set_all_pdfs_from_html_done(
-        domain_url=start_urls[0], storage_dir=str(DATA_DIRECTORY / "html")
-    )
-
 
 if __name__ == "__main__":
+
     load_dotenv()
-    asyncio.run(main())
-    send_to_rag()
+
+    # base_url = ["https://www.wsd.gov.hk/en/home/index.html"]
+    # asyncio.run(main(base_url))
+    send_to_rag("https://www.wsd.gov.hk")
+
+    # base_url = ["https://www.wsd.gov.hk/tc/home/index.html"]
+    # asyncio.run(main(base_url))
+    # send_to_rag("https://www.wsd.gov.hk")

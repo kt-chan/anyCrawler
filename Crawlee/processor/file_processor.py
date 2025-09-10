@@ -95,7 +95,23 @@ def url_formater(url: str, tags: list[str], base_dir: str) -> list[str]:
     return tag_urls
 
 
-def get_all_pdfs_from_html(domain_url: str, storage_dir: str):
+def get_all_pdfs_in_temp_directory(storage_dir: str):
+    pdfs = []
+
+    try:
+        for root, dirs, files in os.walk(storage_dir):
+            for file in files:
+                if file.endswith(".pdf"):
+                    pdfs.append(str(Path(storage_dir + "/" + file).resolve()))
+        if len(pdfs) == 0:
+            return []
+    except Exception as e:
+        print(f"error in get_all_pdfs_from_html: {e}")
+
+    return pdfs
+
+
+def get_all_pdfs_from_directory(domain_url: str, storage_dir: str):
     domain_url = get_root_domain_from_url(domain_url)
     target_data_dir = str(Path(storage_dir + "/" + domain_url).resolve())
     pdfs = []
@@ -105,9 +121,9 @@ def get_all_pdfs_from_html(domain_url: str, storage_dir: str):
             for file in files:
 
                 # Skip working directory
-                skip = str(Path(file).parent).endswith("pdf.tmp") or str(
+                skip = str(Path(file).parent).endswith("pdf-upload.tmp") or str(
                     Path(file).parent
-                ).endswith("pdf.done")
+                ).endswith("pdf-upload.done")
 
                 if file.endswith(".pdf") and not skip:
                     pdfs.append(os.path.join(root, file))
@@ -115,21 +131,21 @@ def get_all_pdfs_from_html(domain_url: str, storage_dir: str):
         if len(pdfs) == 0:
             return []
 
-        target_dir = Path(target_data_dir) / "pdf.tmp"
-        os.makedirs(target_dir, exist_ok=True)
+        tmp_upload_dir = Path(storage_dir).parent / "pdf-upload.tmp"
+        os.makedirs(tmp_upload_dir, exist_ok=True)
 
         for idx, file in enumerate(pdfs):
             try:
-                file_name = Path(file).parent.name
+                file_name = str(Path(file).parent.name) + "-" + str(Path(file).name)
 
-                file_destination = str(target_dir / file_name) + ".pdf"
+                file_destination = str(tmp_upload_dir / file_name)
 
                 shutil.move(file, file_destination)
                 pdfs[idx] = file_destination
             except Exception as e:
                 print(f"error in rename pdf {file}: {e}")
         try:
-            shutil.rmtree(Path(target_data_dir) / "pdf.done")
+            shutil.rmtree(Path(target_data_dir) / "pdf-upload.done")
         except Exception as e:
             pass
     except Exception as e:
@@ -138,30 +154,20 @@ def get_all_pdfs_from_html(domain_url: str, storage_dir: str):
     return pdfs
 
 
-def set_all_pdfs_from_html_done(domain_url: str, storage_dir: str):
-    domain_url = get_root_domain_from_url(domain_url)
-    target_data_dir = str(
-        Path(storage_dir + "/" + domain_url + "/" + "pdf.tmp").resolve()
-    )
-    pdfs = []
-
+def set_pdfs_upload_done(urls: list[str], storage_dir: str):
     try:
-        for root, dirs, files in os.walk(target_data_dir):
-            for file in files:
-                if file.endswith(".pdf"):
-                    pdfs.append(os.path.join(root, file))
 
-        target_dir = Path(target_data_dir).parent / "pdf.done"
+        target_dir = Path(storage_dir) / "pdf-upload.done"
         os.makedirs(target_dir, exist_ok=True)
 
-        for idx, file in enumerate(pdfs):
+        for idx, file in enumerate(urls):
             try:
-                file_destination = str(file).replace("pdf.tmp", "pdf.done")
+                file_destination = target_dir / Path(file).name
                 shutil.move(file, file_destination)
             except Exception as e:
                 print(f"error in rename pdf {file}: {e}")
     except Exception as e:
-        print(f"error in set_all_pdfs_from_html_done: {e}")
+        print(f"error in set_all_pdfs_upload_done: {e}")
 
     print(f"RAG Loading Completed!")
     return True
