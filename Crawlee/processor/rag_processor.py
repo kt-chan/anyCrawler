@@ -1,5 +1,8 @@
 import requests
+import urllib3
 
+# Suppress only the InsecureRequestWarning
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def upload_document(api_key, host_url, file_path, fodler_name, workspace_name):
     """

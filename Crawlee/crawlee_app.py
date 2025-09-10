@@ -482,8 +482,6 @@ def send_to_rag(base_url: str, folder_name: str = None, workspace_name: str = No
         storage_dir=str(DATA_DIRECTORY / "pdf-upload.tmp")
     )
 
-    target_pdfs.extend(target_html_pdfs)
-    target_pdfs.extend(target_content_pdfs)
     target_pdfs.extend(target_tmp_pdfs)
 
     total_size = len(target_pdfs)
